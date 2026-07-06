@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>單字保衛戰 (排行榜版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .keyboard-key { transition: all 0.1s; cursor: pointer; }
+        .keyboard-key:active { transform: scale(0.9); }
+        .word { transition: top 0.1s linear; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white h-screen flex flex-col overflow-hidden font-sans">
+
+    <div class="flex justify-between items-center p-4 bg-gray-800">
+        <div id="score" class="text-xl font-bold">分數: 0</div>
+        <div id="timer" class="text-xl font-mono text-yellow-400">時間: 30s</div>
+        <div id="lives" class="flex gap-2 text-2xl">❤️ ❤️ ❤️</div>
+    </div>
+
+    <div id="game-area" class="flex-grow relative overflow-hidden">
+        <div id="start-screen" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/90 z-50">
+            <h1 class="text-4xl font-bold mb-6">單字保衛戰</h1>
+            <input type="text" id="player-name" placeholder="請輸入玩家名稱" class="mb-4 p-2 text-black rounded w-48 text-center" maxlength="10">
+            <div class="flex gap-4 mb-6">
+                <button id="start-btn" class="bg-green-600 px-6 py-3 rounded-xl font-bold hover:bg-green-500">開始遊戲</button>
+                <button id="gemini-btn" class="bg-purple-600 px-6 py-3 rounded-xl font-bold hover:bg-purple-500">✨ AI 詞庫</button>
+            </div>
+            <div id="leaderboard" class="w-64 text-center text-sm text-gray-300">載入排行榜中...</div>
+        </div>
+    </div>
+
+    <div id="keyboard" class="p-4 bg-gray-800 flex flex-col gap-2 items-center select-none">
+        <div id="row1" class="flex gap-1"></div>
+        <div id="row2" class="flex gap-1 pl-4"></div>
+        <div id="row3" class="flex gap-1 pl-8"></div>
+    </div>
+
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzQPILj_oCeXInacHAjkiFHiBjzoyaGh-Ux4P6G6O6ytDxLOy_Tz8gAHd2JXdYP-_xW/exec"; 
+        let words = ["APPLE", "BANANA", "TIGER", "HOUSE", "DOG", "CAT", "SCHOOL", "BOOK", "WATER", "FRIEND"];
+        let score = 0, lives = 3, timeLeft = 30, activeWords = [], gameRunning = false, playerName = "無名氏";
+
+        async function updateLeaderboard() {
+            const lbContainer = document.getElementById('leaderboard');
+            if (!lbContainer) return;
+            try {
+                const res = await fetch(GAS_URL);
+                const lb = await res.json();
+                let html = '<h2 class="font-bold border-b border-gray-600 mb-2">排行榜</h2>';
+                html += lb.length === 0 ? '<p>尚無紀錄</p>' : lb.map(p=>`<p>${p.name}: ${p.score}</p>`).join('');
+                lbContainer.innerHTML = html;
+            } catch (e) {
+                lbContainer.innerHTML = '<p>無法連接伺服器</p>';
+            }
+        }
+
+        function createWord() {
+            const word = words[Math.floor(Math.random() * words.length)];
+            const hiddenIdx = Math.floor(Math.random() * word.length);
+            const display = word.split('').map((c, i) => i === hiddenIdx ? '_' : c).join(' ');
+            const el = document.createElement('div');
+            el.className = "word absolute text-2xl font-bold text-yellow-400";
+            el.textContent = display;
+            el.style.left = Math.random() * 80 + '%';
+            el.style.top = '-50px';
+            document.getElementById('game-area').appendChild(el);
+            activeWords.push({ el, text: word, hiddenIdx, y: -50 });
+        }
+
+        function update() {
+            if (!gameRunning) return;
+            if (Math.random() < 0.02) createWord();
+            activeWords.forEach((w, i) => {
+                w.y += 1.5;
+                w.el.style.top = w.y + 'px';
+                if (w.y > window.innerHeight - 200) {
+                    lives--;
+                    w.el.remove(); activeWords.splice(i, 1);
+                    document.getElementById('lives').textContent = "❤️ ".repeat(Math.max(0, lives));
+                    if (lives <= 0) {
+                        gameRunning = false;
+                        setTimeout(endGame, 100);
+                    }
+                }
+            });
+            requestAnimationFrame(update);
+        }
+
+        async function endGame() {
+            gameRunning = false;
+            await fetch(GAS_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({name: playerName, score})
+            });
+            
+            alert(`遊戲結束！${playerName} 的分數為：${score}，已上傳至排行榜。`);
+            location.reload();
+        }
+
+        function handleInput(char) {
+            if (!gameRunning) return;
+            activeWords.forEach((w, i) => {
+                if (w.text[w.hiddenIdx] === char) {
+                    score += 10;
+                    document.getElementById('score').textContent = `分數: ${score}`;
+                    w.el.remove(); activeWords.splice(i, 1);
+                }
+            });
+        }
+
+        const rows = [["Q","W","E","R","T","Y","U","I","O","P"], ["A","S","D","F","G","H","J","K","L"], ["Z","X","C","V","B","N","M"]];
+        rows.forEach((row, idx) => {
+            const container = document.getElementById(`row${idx + 1}`);
+            row.forEach(char => {
+                const btn = document.createElement('button');
+                btn.className = "keyboard-key bg-gray-700 w-9 h-12 rounded flex items-center justify-center font-bold";
+                btn.textContent = char;
+                btn.onclick = () => handleInput(char);
+                container.appendChild(btn);
+            });
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateLeaderboard();
+            document.getElementById('start-btn').onclick = () => {
+                playerName = document.getElementById('player-name').value || "無名氏";
+                score = 0; lives = 3; timeLeft = 30; gameRunning = true;
+                document.getElementById('start-screen').classList.add('hidden');
+                update();
+                const interval = setInterval(() => {
+                    timeLeft--;
+                    document.getElementById('timer').textContent = `時間: ${timeLeft}s`;
+                    if (timeLeft <= 0) { 
+                        clearInterval(interval); 
+                        gameRunning = false;
+                        setTimeout(endGame, 100); 
+                    }
+                }, 1000);
+            };
+        });
+
+        window.addEventListener('keydown', e => handleInput(e.key.toUpperCase()));
+    </script>
+</body>
+</html>
